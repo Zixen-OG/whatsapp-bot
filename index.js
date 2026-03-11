@@ -9,6 +9,9 @@ const pino = require('pino');
 const qrcode = require('qrcode-terminal');
 const fs = require('fs');
 
+// Owner number - change this to your number (with country code, no +)
+const OWNER_NUMBER = '2348067298104'; // <-- PUT YOUR NUMBER HERE
+
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
     const { version } = await fetchLatestBaileysVersion();
@@ -40,90 +43,67 @@ async function connectToWhatsApp() {
 
     sock.ev.on('messages.upsert', async (m) => {
         const msg = m.messages[0];
+        if (!msg || !msg.message) return;
+        if (msg.key.fromMe) return;
 
-
-        const messageText = msg.message?.conversation || 
-                           msg.message?.extendedTextMessage?.text || 
-                           msg.message?.imageMessage?.caption || '';
         const sender = msg.key.remoteJid;
-        const isGroup = sender.endsWith('@g.us');
         const senderName = msg.pushName || 'User';
+        const isGroup = sender.endsWith('@g.us');
 
-        console.log(`📩 ${senderName}: ${messageText}`);
+        let messageText = '';
+        if (msg.message.conversation) {
+            messageText = msg.message.conversation;
+        } else if (msg.message.extendedTextMessage?.text) {
+            messageText = msg.message.extendedTextMessage.text;
+        } else if (msg.message.imageMessage?.caption) {
+            messageText = msg.message.imageMessage.caption;
+        } else if (msg.message.videoMessage?.caption) {
+            messageText = msg.message.videoMessage.caption;
+        }
 
         const cmd = messageText.toLowerCase().trim();
         const args = messageText.split(' ');
         const command = args[0].toLowerCase();
 
-        // ==================== MENU COMMAND ====================
+        // ==================== MENU ====================
         if (cmd === '.menu' || cmd === '.help') {
             const menuText = `╔══════════════════════════════════════╗
-║     🤖 *ULTIMATE WHATSAPP BOT*       ║
+║     🤖 *ZIXEN WHATSAPP BOT*       ║
 ╚══════════════════════════════════════╝
 
 *📋 BASIC*
-├─ hi/hello - Greet bot
-├─ ping - Check speed
-├─ menu/help - Show this menu
-└─ read - Mark as read
+.hi, .ping, .menu, .read
 
 *🎬 MEDIA*
-├─ image - Random image
-├─ video - Send video
-├─ audio - Voice note
-├─ file - Send document
-├─ sticker - Send sticker
-├─ location - Send location
-└─ contact - Send contact
+.image, .video, .audio, .file, .location, .contact
 
 *🎛️ INTERACTIVE*
-├─ buttons - Button options
-├─ poll - Create poll
-└─ list - List menu
+.buttons, .poll, .list
 
 *📢 BROADCAST*
-├─ broadcast [msg] - Text to all
-└─ bcmedia [caption] - Image to all
+.broadcast [msg], .bcmedia [caption]
 
-*📱 STATUS/STORIES*
-├─ status - Post text status
-├─ statusimage - Post image status
-├─ statusvideo - Post video status
-└─ getstatus - View statuses
+*📱 STATUS*
+.status, .statusimage, .statusvideo
 
-*👥 GROUP MANAGEMENT*
-├─ creategroup [name] - Create group
-├─ groups - List your groups
-├─ groupinfo - Group details
-├─ participants - Member list
-├─ grouplink - Get invite link
-├─ revokelink - Revoke link
-├─ joingroup [link] - Join group
-├─ leave - Exit group
-├─ add [number] - Add member
-├─ kick [number] - Remove member
-├─ promote [number] - Make admin
-├─ demote [number] - Remove admin
-├─ tagall - Mention everyone
-├─ tagadmins - Mention admins
-├─ setname [name] - Change name
-├─ setdesc [text] - Change desc
-├─ closegroup - Admins only msg
-├─ opengroup - Everyone can msg
-├─ lockedit - Lock group info
-└─ unlockedit - Unlock group info
+*👥 GROUP*
+.creategroup [name], .groups, .groupinfo, .participants
+.grouplink, .revokelink, .joingroup [link], .leave
+.add [num], .kick [num], .promote [num], .demote [num]
+.tagall, .tagadmins, .setname [name], .setdesc [text]
+.closegroup, .opengroup, .lockedit, .unlockedit
 
-*👤 PROFILE*
-├─ getpp - Get profile pic
-├─ block [number] - Block user
-└─ unblock [number] - Unblock user
+*🔓 SPECIAL*
+.vv - Unlock view once (reply to view once)
+.sticker - Image to sticker (reply to image)
+.save - Save anything (reply to any media/status)
+.clear - Clear entire chat
+
+*📊 INFO*
+.owner, .runtime, .speed
 
 *⚡ ACTIONS*
-├─ react - React to msg
-├─ typing - Show typing
-├─ recording - Show recording
-├─ delete - Delete msg
-└─ download - Download media`;
+.react, .typing, .recording, .delete, .download`;
             await sock.sendMessage(sender, { text: menuText });
         }
 
@@ -140,6 +120,303 @@ async function connectToWhatsApp() {
         else if (cmd === '.read') {
             await sock.readMessages([msg.key]);
             await sock.sendMessage(sender, { text: '✓ Marked as read' });
+        }
+        else if (cmd === '.owner') {
+            await sock.sendMessage(sender, { text: `👑 Bot Owner: @${OWNER_NUMBER}`, mentions: [OWNER_NUMBER + '@s.whatsapp.net'] });
+        }
+        else if (cmd === '.runtime') {
+            const uptime = process.uptime();
+            const hours = Math.floor(uptime / 3600);
+            const minutes = Math.floor((uptime % 3600) / 60);
+            const seconds = Math.floor(uptime % 60);
+            await sock.sendMessage(sender, { text: `⏱️ Uptime: ${hours}h ${minutes}m ${seconds}s` });
+        }
+        else if (cmd === '.speed') {
+            const start = Date.now();
+            await sock.sendMessage(sender, { text: '🏃‍♂️ Testing...' });
+            const end = Date.now();
+            await sock.sendMessage(sender, { text: `⚡ Speed: ${end - start}ms` });
+        }
+
+        // ==================== VIEW ONCE UNLOCKER (.vv) ====================
+        else if (cmd === '.vv') {
+            const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+            
+            if (!quotedMsg) {
+                await sock.sendMessage(sender, { text: '❌ Reply to a view once message with .vv to unlock it!' });
+                return;
+            }
+            
+            const isQuotedViewOnce = quotedMsg.viewOnceMessage?.message?.imageMessage || 
+                                    quotedMsg.viewOnceMessage?.message?.videoMessage;
+            
+            if (!isQuotedViewOnce) {
+                await sock.sendMessage(sender, { text: '❌ The quoted message is not a view once message!' });
+                return;
+            }
+            
+            try {
+                const viewOnceContent = quotedMsg.viewOnceMessage.message;
+                const isImage = viewOnceContent.imageMessage;
+                const mediaType = isImage ? 'image' : 'video';
+                const mediaMsg = isImage ? viewOnceContent.imageMessage : viewOnceContent.videoMessage;
+                
+                const buffer = await downloadMediaMessage(
+                    { message: { [`${mediaType}Message`]: mediaMsg }, key: msg.key }, 
+                    'buffer', 
+                    {}, 
+                    { logger: pino({ level: 'silent' }) }
+                );
+                
+                const ownerJid = OWNER_NUMBER + '@s.whatsapp.net';
+                
+                const caption = `🔓 *VIEW ONCE UNLOCKED*\n\n` +
+                               `*From:* ${senderName}\n` +
+                               `*Chat:* ${isGroup ? 'Group' : 'Private'}\n` +
+                               `*Time:* ${new Date().toLocaleString()}`;
+                
+                if (mediaType === 'image') {
+                    await sock.sendMessage(ownerJid, {
+                        image: buffer,
+                        caption: caption
+                    });
+                } else {
+                    await sock.sendMessage(ownerJid, {
+                        video: buffer,
+                        caption: caption
+                    });
+                }
+                
+                await sock.sendMessage(sender, { text: '✅ Unlocked and sent to your DM!' });
+                
+            } catch (err) {
+                console.log('Error unlocking view once:', err);
+                await sock.sendMessage(sender, { text: '❌ Failed to unlock. Try again!' });
+            }
+        }
+
+        // ==================== STICKER CONVERTER (.sticker) ====================
+        else if (cmd === '.sticker') {
+            const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+            
+            if (!quotedMsg) {
+                await sock.sendMessage(sender, { text: '❌ Reply to an image with .sticker to convert it!' });
+                return;
+            }
+            
+            const isImage = quotedMsg.imageMessage;
+            
+            if (!isImage) {
+                await sock.sendMessage(sender, { text: '❌ The quoted message is not an image!' });
+                return;
+            }
+            
+            try {
+                const buffer = await downloadMediaMessage(
+                    { message: { imageMessage: quotedMsg.imageMessage }, key: msg.key }, 
+                    'buffer', 
+                    {}, 
+                    { logger: pino({ level: 'silent' }) }
+                );
+                
+                await sock.sendMessage(sender, {
+                    sticker: buffer
+                });
+                
+                await sock.sendMessage(sender, { text: '✅ Sticker created!' });
+                
+            } catch (err) {
+                console.log('Error creating sticker:', err);
+                await sock.sendMessage(sender, { text: '❌ Failed to create sticker. Try again!' });
+            }
+        }
+
+        // ==================== SAVE ANYTHING (.save) ====================
+        else if (cmd === '.save') {
+            const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+            
+            if (!quotedMsg) {
+                await sock.sendMessage(sender, { text: '❌ Reply to any message (image, video, audio, status, doc) with .save to save it!' });
+                return;
+            }
+            
+            try {
+                const ownerJid = OWNER_NUMBER + '@s.whatsapp.net';
+                let saved = false;
+                let mediaType = '';
+                let buffer = null;
+                let caption = '';
+                let originalCaption = '';
+                
+                // Check for status message (story)
+                if (quotedMsg.statusMessage) {
+                    const statusMsg = quotedMsg.statusMessage;
+                    if (statusMsg.imageMessage) {
+                        buffer = await downloadMediaMessage(
+                            { message: { imageMessage: statusMsg.imageMessage }, key: msg.key },
+                            'buffer', {}, { logger: pino({ level: 'silent' }) }
+                        );
+                        mediaType = 'image';
+                        originalCaption = statusMsg.imageMessage.caption || '';
+                        saved = true;
+                    } else if (statusMsg.videoMessage) {
+                        buffer = await downloadMediaMessage(
+                            { message: { videoMessage: statusMsg.videoMessage }, key: msg.key },
+                            'buffer', {}, { logger: pino({ level: 'silent' }) }
+                        );
+                        mediaType = 'video';
+                        originalCaption = statusMsg.videoMessage.caption || '';
+                        saved = true;
+                    }
+                }
+                // Check for image
+                else if (quotedMsg.imageMessage) {
+                    buffer = await downloadMediaMessage(
+                        { message: { imageMessage: quotedMsg.imageMessage }, key: msg.key },
+                        'buffer', {}, { logger: pino({ level: 'silent' }) }
+                    );
+                    mediaType = 'image';
+                    originalCaption = quotedMsg.imageMessage.caption || '';
+                    saved = true;
+                }
+                // Check for video
+                else if (quotedMsg.videoMessage) {
+                    buffer = await downloadMediaMessage(
+                        { message: { videoMessage: quotedMsg.videoMessage }, key: msg.key },
+                        'buffer', {}, { logger: pino({ level: 'silent' }) }
+                    );
+                    mediaType = 'video';
+                    originalCaption = quotedMsg.videoMessage.caption || '';
+                    saved = true;
+                }
+                // Check for audio/voice
+                else if (quotedMsg.audioMessage) {
+                    buffer = await downloadMediaMessage(
+                        { message: { audioMessage: quotedMsg.audioMessage }, key: msg.key },
+                        'buffer', {}, { logger: pino({ level: 'silent' }) }
+                    );
+                    mediaType = 'audio';
+                    saved = true;
+                }
+                // Check for document
+                else if (quotedMsg.documentMessage) {
+                    buffer = await downloadMediaMessage(
+                        { message: { documentMessage: quotedMsg.documentMessage }, key: msg.key },
+                        'buffer', {}, { logger: pino({ level: 'silent' }) }
+                    );
+                    mediaType = 'document';
+                    originalCaption = quotedMsg.documentMessage.caption || '';
+                    saved = true;
+                }
+                // Check for sticker
+                else if (quotedMsg.stickerMessage) {
+                    buffer = await downloadMediaMessage(
+                        { message: { stickerMessage: quotedMsg.stickerMessage }, key: msg.key },
+                        'buffer', {}, { logger: pino({ level: 'silent' }) }
+                    );
+                    mediaType = 'sticker';
+                    saved = true;
+                }
+                
+                if (!saved || !buffer) {
+                    await sock.sendMessage(sender, { text: '❌ Could not detect media in the quoted message!' });
+                    return;
+                }
+                
+                caption = `💾 *SAVED CONTENT*\n\n` +
+                         `*Type:* ${mediaType.toUpperCase()}\n` +
+                         `*From:* ${senderName}\n` +
+                         `*Chat:* ${isGroup ? 'Group' : 'Private'}\n` +
+                         `*Time:* ${new Date().toLocaleString()}\n` +
+                         (originalCaption ? `*Caption:* ${originalCaption}\n` : '');
+                
+                // Send to owner DM based on media type
+                switch(mediaType) {
+                    case 'image':
+                        await sock.sendMessage(ownerJid, {
+                            image: buffer,
+                            caption: caption
+                        });
+                        break;
+                    case 'video':
+                        await sock.sendMessage(ownerJid, {
+                            video: buffer,
+                            caption: caption
+                        });
+                        break;
+                    case 'audio':
+                        await sock.sendMessage(ownerJid, {
+                            audio: buffer,
+                            mimetype: 'audio/mp4',
+                            ptt: quotedMsg.audioMessage?.ptt || false
+                        });
+                        // Send info separately for audio
+                        await sock.sendMessage(ownerJid, { text: caption });
+                        break;
+                    case 'document':
+                        await sock.sendMessage(ownerJid, {
+                            document: buffer,
+                            fileName: quotedMsg.documentMessage?.fileName || 'document',
+                            mimetype: quotedMsg.documentMessage?.mimetype || 'application/octet-stream',
+                            caption: caption
+                        });
+                        break;
+                    case 'sticker':
+                        await sock.sendMessage(ownerJid, {
+                            sticker: buffer
+                        });
+                        await sock.sendMessage(ownerJid, { text: caption });
+                        break;
+                }
+                
+                await sock.sendMessage(sender, { text: `✅ ${mediaType.toUpperCase()} saved to your DM!` });
+                
+            } catch (err) {
+                console.log('Error saving media:', err);
+                await sock.sendMessage(sender, { text: '❌ Failed to save. Try again!' });
+            }
+        }
+
+        // ==================== CLEAR CHAT (.clear) ====================
+        else if (cmd === '.clear') {
+            try {
+                // Get all messages in chat (last 100)
+                const messages = await sock.loadMessages(sender, 100);
+                
+                if (!messages || messages.length === 0) {
+                    await sock.sendMessage(sender, { text: 'ℹ️ No messages to clear!' });
+                    return;
+                }
+                
+                let deletedCount = 0;
+                
+                // Delete each message
+                for (const message of messages) {
+                    try {
+                        if (!message.key.fromMe) { // Only delete others' messages
+                            await sock.sendMessage(sender, { 
+                                delete: {
+                                    remoteJid: sender,
+                                    fromMe: false,
+                                    id: message.key.id,
+                                    participant: message.key.participant || sender
+                                }
+                            });
+                            deletedCount++;
+                            // Small delay to avoid rate limit
+                            await new Promise(r => setTimeout(r, 100));
+                        }
+                    } catch (e) {
+                        // Skip if can't delete
+                    }
+                }
+                
+                await sock.sendMessage(sender, { text: `🧹 Cleared ${deletedCount} messages!` });
+                
+            } catch (err) {
+                console.log('Error clearing chat:', err);
+                await sock.sendMessage(sender, { text: '❌ Could not clear chat. Try manually!' });
+            }
         }
 
         // ==================== MEDIA ====================
@@ -169,11 +446,6 @@ async function connectToWhatsApp() {
                 fileName: 'document.pdf',
                 mimetype: 'application/pdf',
                 caption: 'File! 📄'
-            });
-        }
-        else if (cmd === '.sticker') {
-            await sock.sendMessage(sender, {
-                sticker: fs.readFileSync('./sticker.webp')
             });
         }
         else if (cmd === '.location') {
@@ -235,10 +507,10 @@ async function connectToWhatsApp() {
         // ==================== BROADCAST ====================
         else if (command === '.broadcast' && args.length > 1) {
             const message = args.slice(1).join(' ');
-            const chats = await sock.groupFetchAllParticipating();
-            const contacts = Object.keys(chats).filter(id => id.endsWith('@s.whatsapp.net'));
+            const groups = await sock.groupFetchAllParticipating();
+            const contacts = Object.keys(groups).filter(id => id.endsWith('@s.whatsapp.net'));
             
-            await sock.sendMessage(sender, { text: `Broadcasting...` });
+            await sock.sendMessage(sender, { text: `Broadcasting to ${contacts.length} contacts...` });
             
             for (const contact of contacts) {
                 await new Promise(r => setTimeout(r, 1000));
@@ -248,8 +520,8 @@ async function connectToWhatsApp() {
         }
         else if (command === '.bcmedia' && args.length > 1) {
             const caption = args.slice(1).join(' ');
-            const chats = await sock.groupFetchAllParticipating();
-            const contacts = Object.keys(chats).filter(id => id.endsWith('@s.whatsapp.net'));
+            const groups = await sock.groupFetchAllParticipating();
+            const contacts = Object.keys(groups).filter(id => id.endsWith('@s.whatsapp.net'));
             
             for (const contact of contacts) {
                 await new Promise(r => setTimeout(r, 1000));
@@ -280,26 +552,17 @@ async function connectToWhatsApp() {
             });
             await sock.sendMessage(sender, { text: '✅ Video status posted!' });
         }
-        else if (cmd === '.getstatus') {
-            await sock.sendMessage(sender, { text: 'Check status updates in your WhatsApp status tab!' });
-        }
 
         // ==================== GROUP MANAGEMENT ====================
         else if (command === '.creategroup' && args.length > 1) {
-    const groupName = args.slice(1).join(' ');
-    try {
-        // Try creating with just yourself first
-        const group = await sock.groupCreate(groupName, [sock.user.id]);
-        await sock.sendMessage(sender, { 
-            text: `✅ Group "${groupName}" created!\nID: ${group.id}\n\nNow you can add members manually or use !add [number]` 
-        });
-    } catch (err) {
-        console.log('Group creation error:', err);
-        await sock.sendMessage(sender, { 
-            text: `❌ Could not create group.\n\n*Workaround:*\n1. Create group manually in WhatsApp\n2. Add this bot number to the group\n3. Use !promote [bot-number] to make bot admin` 
-        });
-    }
-}
+            const groupName = args.slice(1).join(' ');
+            try {
+                const group = await sock.groupCreate(groupName, [sock.user.id]);
+                await sock.sendMessage(sender, { text: `✅ Group "${groupName}" created!\nID: ${group.id}` });
+            } catch (err) {
+                await sock.sendMessage(sender, { text: '❌ Could not create group. Try manually!' });
+            }
+        }
         else if (cmd === '.groups') {
             const groups = await sock.groupFetchAllParticipating();
             const groupList = Object.values(groups).map(g => `• ${g.subject} (${g.participants.length} members)`).join('\n');
@@ -309,7 +572,7 @@ async function connectToWhatsApp() {
             const metadata = await sock.groupMetadata(sender);
             const admins = metadata.participants.filter(p => p.admin).length;
             await sock.sendMessage(sender, {
-                text: `*Name:* ${metadata.subject}\n*Members:* ${metadata.participants.length}\n*Admins:* ${admins}\n*Created:* ${new Date(metadata.creation * 1000).toLocaleDateString()}`
+                text: `*Name:* ${metadata.subject}\n*Members:* ${metadata.participants.length}\n*Admins:* ${admins}`
             });
         }
         else if (cmd === '.participants' && isGroup) {
@@ -327,7 +590,7 @@ async function connectToWhatsApp() {
         }
         else if (cmd === '.revokelink' && isGroup) {
             await sock.groupRevokeInvite(sender);
-            await sock.sendMessage(sender, { text: '🔗 Link revoked! Use grouplink for new one.' });
+            await sock.sendMessage(sender, { text: '🔗 Link revoked!' });
         }
         else if (command === '.joingroup' && args.length > 1) {
             const link = args[1];
@@ -405,26 +668,6 @@ async function connectToWhatsApp() {
             await sock.sendMessage(sender, { text: '🔓 Everyone can edit group info.' });
         }
 
-        // ==================== PROFILE ====================
-        else if (cmd === '.getpp') {
-            try {
-                const ppUrl = await sock.profilePictureUrl(sender, 'image');
-                await sock.sendMessage(sender, { image: { url: ppUrl }, caption: 'Profile pic!' });
-            } catch {
-                await sock.sendMessage(sender, { text: 'No profile picture!' });
-            }
-        }
-        else if (command === '.block' && args.length > 1) {
-            const number = args[1].replace(/[^0-9]/g, '') + '@s.whatsapp.net';
-            await sock.updateBlockStatus(number, 'block');
-            await sock.sendMessage(sender, { text: `🚫 Blocked ${args[1]}` });
-        }
-        else if (command === '.unblock' && args.length > 1) {
-            const number = args[1].replace(/[^0-9]/g, '') + '@s.whatsapp.net';
-            await sock.updateBlockStatus(number, 'unblock');
-            await sock.sendMessage(sender, { text: `✅ Unblocked ${args[1]}` });
-        }
-
         // ==================== ACTIONS ====================
         else if (cmd === '.react') {
             await sock.sendMessage(sender, { react: { text: '❤️', key: msg.key } });
@@ -457,9 +700,6 @@ async function connectToWhatsApp() {
                 await sock.sendMessage(sender, { text: `Saved as downloaded.${ext}` });
             }
         }
-
-        // ==================== NO DEFAULT - IGNORE UNKNOWN MESSAGES ====================
-        // Unknown messages are silently ignored - no reply sent
     });
 }
 
