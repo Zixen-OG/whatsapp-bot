@@ -10,7 +10,7 @@ const qrcode = require('qrcode-terminal');
 const fs = require('fs');
 
 // Owner number - change this to your number (with country code, no +)
-const OWNER_NUMBER = '2348067298104'; // <-- PUT YOUR NUMBER HERE
+const OWNER_NUMBER = '2348067298104'; 
 
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
